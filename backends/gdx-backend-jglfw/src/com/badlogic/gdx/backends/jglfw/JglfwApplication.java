@@ -1,3 +1,18 @@
+/*******************************************************************************
+ * Copyright 2011 See AUTHORS file.
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ ******************************************************************************/
 
 package com.badlogic.gdx.backends.jglfw;
 
@@ -39,24 +54,24 @@ public class JglfwApplication implements Application {
 	private int logLevel = LOG_INFO;
 	volatile boolean running = true;
 	boolean isPaused;
+	protected String preferencesdir;
 
 	private boolean forceExit, runOnEDT;
 	private int foregroundFPS, backgroundFPS, hiddenFPS;
 
 	public JglfwApplication (ApplicationListener listener) {
-		this(listener, listener.getClass().getSimpleName(), 640, 480, false);
+		this(listener, listener.getClass().getSimpleName(), 640, 480);
 	}
 
-	public JglfwApplication (ApplicationListener listener, String title, int width, int height, boolean useGL2) {
-		this(listener, createConfig(title, width, height, useGL2));
+	public JglfwApplication (ApplicationListener listener, String title, int width, int height) {
+		this(listener, createConfig(title, width, height));
 	}
 
-	static private JglfwApplicationConfiguration createConfig (String title, int width, int height, boolean useGL2) {
+	static private JglfwApplicationConfiguration createConfig (String title, int width, int height) {
 		JglfwApplicationConfiguration config = new JglfwApplicationConfiguration();
 		config.title = title;
 		config.width = width;
 		config.height = height;
-		config.useGL20 = useGL2;
 		return config;
 	}
 
@@ -94,6 +109,7 @@ public class JglfwApplication implements Application {
 		foregroundFPS = config.foregroundFPS;
 		backgroundFPS = config.backgroundFPS;
 		hiddenFPS = config.hiddenFPS;
+		preferencesdir = config.preferencesLocation;
 
 		final Thread glThread = Thread.currentThread();
 
@@ -147,6 +163,11 @@ public class JglfwApplication implements Application {
 				graphics.minimized = iconified;
 			}
 
+			public boolean windowClose (long window) {
+				if (shouldExit()) exit();
+				return false;
+			}
+
 			public void error (int error, String description) {
 				throw new GdxRuntimeException("GLFW error " + error + ": " + description);
 			}
@@ -180,24 +201,16 @@ public class JglfwApplication implements Application {
 
 	/** Handles posted runnables, input, and rendering for each frame. */
 	protected void frame () {
-		if (glfwWindowShouldClose(graphics.window)) {
-			exit();
-			return;
-		}
+		if (!running) return;
 
-		synchronized (runnables) {
-			executedRunnables.clear();
-			executedRunnables.addAll(runnables);
-			runnables.clear();
-		}
-		if (executedRunnables.size > 0) {
-			for (int i = 0; i < executedRunnables.size; i++)
-				executedRunnables.get(i).run();
-			if (!running) return;
-			graphics.requestRendering();
-		}
+		boolean shouldRender = false;
+
+		if (executeRunnables()) shouldRender = true;
+
+		if (!running) return;
 
 		input.update();
+		shouldRender |= graphics.shouldRender();
 
 		long frameStartTime = System.nanoTime();
 		int targetFPS = (graphics.isHidden() || graphics.isMinimized()) ? hiddenFPS : //
@@ -209,11 +222,31 @@ public class JglfwApplication implements Application {
 		} else {
 			if (isPaused) listener.resume();
 			isPaused = false;
-			if (graphics.shouldRender()) render(frameStartTime);
+			if (shouldRender)
+				render(frameStartTime);
+			else
+				targetFPS = backgroundFPS;
 		}
 
-		if (targetFPS != 0)
-			sleep(targetFPS == -1 ? 100 : (int)(1000f / targetFPS - (System.nanoTime() - frameStartTime) / 1000000f));
+		if (targetFPS != 0) {
+			if (targetFPS == -1)
+				sleep(100);
+			else
+				Sync.sync(targetFPS);
+		}
+	}
+
+	public boolean executeRunnables () {
+		synchronized (runnables) {
+			for (int i = runnables.size - 1; i >= 0; i--)
+				executedRunnables.add(runnables.get(i));
+			runnables.clear();
+		}
+		if (executedRunnables.size == 0) return false;
+		do
+			executedRunnables.pop().run();
+		while (executedRunnables.size > 0);
+		return true;
 	}
 
 	void sleep (int millis) {
@@ -287,7 +320,7 @@ public class JglfwApplication implements Application {
 		if (preferences.containsKey(name))
 			return preferences.get(name);
 		else {
-			Preferences prefs = new JglfwPreferences(name);
+			Preferences prefs = new JglfwPreferences(name, this.preferencesdir);
 			preferences.put(name, prefs);
 			return prefs;
 		}
@@ -320,12 +353,21 @@ public class JglfwApplication implements Application {
 		this.hiddenFPS = hiddenFPS;
 	}
 
+	protected boolean shouldExit () {
+		return true;
+	}
+
 	public void exit () {
 		running = false;
 	}
 
 	public void setLogLevel (int logLevel) {
 		this.logLevel = logLevel;
+	}
+
+	@Override
+	public int getLogLevel () {
+		return logLevel;
 	}
 
 	public void debug (String tag, String message) {
@@ -347,7 +389,7 @@ public class JglfwApplication implements Application {
 		}
 	}
 
-	public void log (String tag, String message, Exception exception) {
+	public void log (String tag, String message, Throwable exception) {
 		if (logLevel >= LOG_INFO) {
 			System.out.println(tag + ": " + message);
 			exception.printStackTrace(System.out);

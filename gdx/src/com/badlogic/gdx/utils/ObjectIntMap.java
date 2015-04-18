@@ -28,7 +28,7 @@ import com.badlogic.gdx.math.MathUtils;
  * depending on hash collisions. Load factors greater than 0.91 greatly increase the chances the map will have to rehash to the
  * next higher POT size.
  * @author Nathan Sweet */
-public class ObjectIntMap<K> {
+public class ObjectIntMap<K> implements Iterable<ObjectIntMap.Entry<K>> {
 	private static final int PRIME1 = 0xbe1f14b1;
 	private static final int PRIME2 = 0xb4b82e39;
 	private static final int PRIME3 = 0xced1c241;
@@ -64,7 +64,7 @@ public class ObjectIntMap<K> {
 	 * before growing the backing table. */
 	public ObjectIntMap (int initialCapacity, float loadFactor) {
 		if (initialCapacity < 0) throw new IllegalArgumentException("initialCapacity must be >= 0: " + initialCapacity);
-		if (capacity > 1 << 30) throw new IllegalArgumentException("initialCapacity is too large: " + initialCapacity);
+		if (initialCapacity > 1 << 30) throw new IllegalArgumentException("initialCapacity is too large: " + initialCapacity);
 		capacity = MathUtils.nextPowerOfTwo(initialCapacity);
 
 		if (loadFactor <= 0) throw new IllegalArgumentException("loadFactor must be > 0: " + loadFactor);
@@ -78,6 +78,15 @@ public class ObjectIntMap<K> {
 
 		keyTable = (K[])new Object[capacity + stashCapacity];
 		valueTable = new int[keyTable.length];
+	}
+
+	/** Creates a new map identical to the specified map. */
+	public ObjectIntMap (ObjectIntMap<? extends K> map) {
+		this(map.capacity, map.loadFactor);
+		stashSize = map.stashSize;
+		System.arraycopy(map.keyTable, 0, keyTable, 0, map.keyTable.length);
+		System.arraycopy(map.valueTable, 0, valueTable, 0, map.valueTable.length);
+		size = map.size;
 	}
 
 	public void put (K key, int value) {
@@ -366,7 +375,28 @@ public class ObjectIntMap<K> {
 		}
 	}
 
+	/** Reduces the size of the backing arrays to be the specified capacity or less. If the capacity is already less, nothing is
+	 * done. If the map contains more items than the specified capacity, the next highest power of two capacity is used instead. */
+	public void shrink (int maximumCapacity) {
+		if (maximumCapacity < 0) throw new IllegalArgumentException("maximumCapacity must be >= 0: " + maximumCapacity);
+		if (size > maximumCapacity) maximumCapacity = size;
+		if (capacity <= maximumCapacity) return;
+		maximumCapacity = MathUtils.nextPowerOfTwo(maximumCapacity);
+		resize(maximumCapacity);
+	}
+
+	/** Clears the map and reduces the size of the backing arrays to be the specified capacity if they are larger. */
+	public void clear (int maximumCapacity) {
+		if (capacity <= maximumCapacity) {
+			clear();
+			return;
+		}
+		size = 0;
+		resize(maximumCapacity);
+	}
+
 	public void clear () {
+		if (size == 0) return;
 		K[] keyTable = this.keyTable;
 		for (int i = capacity + stashSize; i-- > 0;)
 			keyTable[i] = null;
@@ -412,7 +442,7 @@ public class ObjectIntMap<K> {
 		return null;
 	}
 
-	/** Increases the size of the backing array to acommodate the specified number of additional items. Useful before adding many
+	/** Increases the size of the backing array to accommodate the specified number of additional items. Useful before adding many
 	 * items to avoid multiple backing array resizes. */
 	public void ensureCapacity (int additionalCapacity) {
 		int sizeNeeded = size + additionalCapacity;
@@ -435,11 +465,14 @@ public class ObjectIntMap<K> {
 		keyTable = (K[])new Object[newSize + stashCapacity];
 		valueTable = new int[newSize + stashCapacity];
 
+		int oldSize = size;
 		size = 0;
 		stashSize = 0;
-		for (int i = 0; i < oldEndIndex; i++) {
-			K key = oldKeyTable[i];
-			if (key != null) putResize(key, oldValueTable[i]);
+		if (oldSize > 0) {
+			for (int i = 0; i < oldEndIndex; i++) {
+				K key = oldKeyTable[i];
+				if (key != null) putResize(key, oldValueTable[i]);
+			}
 		}
 	}
 
@@ -478,6 +511,10 @@ public class ObjectIntMap<K> {
 		}
 		buffer.append('}');
 		return buffer.toString();
+	}
+
+	public Entries<K> iterator () {
+		return entries();
 	}
 
 	/** Returns an iterator for the entries in the map. Remove is supported. Note that the same iterator instance is returned each
@@ -579,6 +616,8 @@ public class ObjectIntMap<K> {
 			if (currentIndex < 0) throw new IllegalStateException("next must be called before remove.");
 			if (currentIndex >= map.capacity) {
 				map.removeStashIndex(currentIndex);
+				nextIndex = currentIndex - 1;
+				findNextIndex();
 			} else {
 				map.keyTable[currentIndex] = null;
 			}
@@ -607,11 +646,16 @@ public class ObjectIntMap<K> {
 		}
 
 		public boolean hasNext () {
+			if (!valid) throw new GdxRuntimeException("#iterator() cannot be used nested.");
 			return hasNext;
 		}
 
-		public Iterator<Entry<K>> iterator () {
+		public Entries<K> iterator () {
 			return this;
+		}
+
+		public void remove () {
+			super.remove();
 		}
 	}
 
@@ -621,6 +665,7 @@ public class ObjectIntMap<K> {
 		}
 
 		public boolean hasNext () {
+			if (!valid) throw new GdxRuntimeException("#iterator() cannot be used nested.");
 			return hasNext;
 		}
 
@@ -648,6 +693,7 @@ public class ObjectIntMap<K> {
 		}
 
 		public boolean hasNext () {
+			if (!valid) throw new GdxRuntimeException("#iterator() cannot be used nested.");
 			return hasNext;
 		}
 
@@ -660,7 +706,7 @@ public class ObjectIntMap<K> {
 			return key;
 		}
 
-		public Iterator<K> iterator () {
+		public Keys<K> iterator () {
 			return this;
 		}
 
@@ -670,6 +716,17 @@ public class ObjectIntMap<K> {
 			while (hasNext)
 				array.add(next());
 			return array;
+		}
+
+		/** Adds the remaining keys to the array. */
+		public Array<K> toArray (Array<K> array) {
+			while (hasNext)
+				array.add(next());
+			return array;
+		}
+
+		public void remove () {
+			super.remove();
 		}
 	}
 }

@@ -37,15 +37,22 @@ public class Color {
 	public static final Color YELLOW = new Color(1, 1, 0, 1);
 	public static final Color MAGENTA = new Color(1, 0, 1, 1);
 	public static final Color CYAN = new Color(0, 1, 1, 1);
-
-	@Deprecated
-	public static Color tmp = new Color();
+	public static final Color OLIVE = new Color(0.5f, 0.5f, 0, 1);
+	public static final Color PURPLE = new Color(0.5f, 0, 0.5f, 1);
+	public static final Color MAROON = new Color(0.5f, 0, 0, 1);
+	public static final Color TEAL = new Color(0, 0.5f, 0.5f, 1);
+	public static final Color NAVY = new Color(0, 0, 0.5f, 1);
 
 	/** the red, green, blue and alpha components **/
 	public float r, g, b, a;
 
 	/** Constructs a new Color with all components set to 0. */
 	public Color () {
+	}
+
+	/** @see #rgba8888ToColor(Color, int) */
+	public Color (int rgba8888) {
+		rgba8888ToColor(this, rgba8888);
 	}
 
 	/** Constructor, sets the components of the color
@@ -128,7 +135,8 @@ public class Color {
 		return clamp();
 	}
 
-	/** @return this Color for chaining */
+	/** Clamps this Color's components to a valid range [0 - 1]
+	 * @return this Color for chaining */
 	public Color clamp () {
 		if (r < 0)
 			r = 0;
@@ -148,7 +156,14 @@ public class Color {
 		return this;
 	}
 
-	/** @return this Color for chaining */
+	/** Sets this Color's component values.
+	 * 
+	 * @param r Red component
+	 * @param g Green component
+	 * @param b Blue component
+	 * @param a Alpha component
+	 * 
+	 * @return this Color for chaining */
 	public Color set (float r, float g, float b, float a) {
 		this.r = r;
 		this.g = g;
@@ -157,7 +172,23 @@ public class Color {
 		return clamp();
 	}
 
-	/** @return this Color for chaining */
+	/** Sets this color's component values through an integer representation.
+	 * 
+	 * @return this Color for chaining
+	 * @see #rgba8888ToColor(Color, int) */
+	public Color set (int rgba) {
+		rgba8888ToColor(this, rgba);
+		return this;
+	}
+
+	/** Adds the given color component values to this Color's values.
+	 * 
+	 * @param r Red component
+	 * @param g Green component
+	 * @param b Blue component
+	 * @param a Alpha component
+	 * 
+	 * @return this Color for chaining */
 	public Color add (float r, float g, float b, float a) {
 		this.r += r;
 		this.g += g;
@@ -166,7 +197,14 @@ public class Color {
 		return clamp();
 	}
 
-	/** @return this Color for chaining */
+	/** Subtracts the given values from this Color's component values.
+	 * 
+	 * @param r Red component
+	 * @param g Green component
+	 * @param b Blue component
+	 * @param a Alpha component
+	 * 
+	 * @return this Color for chaining */
 	public Color sub (float r, float g, float b, float a) {
 		this.r -= r;
 		this.g -= g;
@@ -175,7 +213,14 @@ public class Color {
 		return clamp();
 	}
 
-	/** @return this Color for chaining */
+	/** Multiplies this Color's color components by the given ones.
+	 * 
+	 * @param r Red component
+	 * @param g Green component
+	 * @param b Blue component
+	 * @param a Alpha component
+	 * 
+	 * @return this Color for chaining */
 	public Color mul (float r, float g, float b, float a) {
 		this.r *= r;
 		this.g *= g;
@@ -183,34 +228,42 @@ public class Color {
 		this.a *= a;
 		return clamp();
 	}
-	
-	/** Linearly interpolates between this color and the target color by t which is in the range [0,1]. 
-	 * The result is stored in this color.
+
+	/** Linearly interpolates between this color and the target color by t which is in the range [0,1]. The result is stored in this
+	 * color.
 	 * @param target The target color
 	 * @param t The interpolation coefficient
 	 * @return This color for chaining. */
-	public Color lerp(final Color target, final float t) {
+	public Color lerp (final Color target, final float t) {
 		this.r += t * (target.r - this.r);
 		this.g += t * (target.g - this.g);
 		this.b += t * (target.b - this.b);
 		this.a += t * (target.a - this.a);
 		return clamp();
 	}
-	
-	/** Linearly interpolates between this color and the target color by t which is in the range [0,1]. 
-	 * The result is stored in this color.
+
+	/** Linearly interpolates between this color and the target color by t which is in the range [0,1]. The result is stored in this
+	 * color.
 	 * @param r The red component of the target color
 	 * @param g The green component of the target color
 	 * @param b The blue component of the target color
 	 * @param a The alpha component of the target color
 	 * @param t The interpolation coefficient
 	 * @return This color for chaining. */
-	public Color lerp(final float r, final float g, final float b, final float a, final float t) {
+	public Color lerp (final float r, final float g, final float b, final float a, final float t) {
 		this.r += t * (r - this.r);
 		this.g += t * (g - this.g);
 		this.b += t * (b - this.b);
 		this.a += t * (a - this.a);
 		return clamp();
+	}
+
+	/** Multiplies the RGB values by the alpha. */
+	public Color premultiplyAlpha () {
+		r *= a;
+		g *= a;
+		b *= a;
+		return this;
 	}
 
 	@Override
@@ -321,6 +374,10 @@ public class Color {
 		return ((int)(r * 255) << 24) | ((int)(g * 255) << 16) | ((int)(b * 255) << 8) | (int)(a * 255);
 	}
 
+	public static int argb8888 (float a, float r, float g, float b) {
+		return ((int)(a * 255) << 24) | ((int)(r * 255) << 16) | ((int)(g * 255) << 8) | (int)(b * 255);
+	}
+
 	public static int rgb565 (Color color) {
 		return ((int)(color.r * 31) << 11) | ((int)(color.g * 63) << 5) | (int)(color.b * 31);
 	}
@@ -335,6 +392,10 @@ public class Color {
 
 	public static int rgba8888 (Color color) {
 		return ((int)(color.r * 255) << 24) | ((int)(color.g * 255) << 16) | ((int)(color.b * 255) << 8) | (int)(color.a * 255);
+	}
+
+	public static int argb8888 (Color color) {
+		return ((int)(color.a * 255) << 24) | ((int)(color.r * 255) << 16) | ((int)(color.g * 255) << 8) | (int)(color.b * 255);
 	}
 
 	/** Sets the Color components using the specified integer value in the format RGB565. This is inverse to the rgb565(r, g, b)
@@ -371,7 +432,7 @@ public class Color {
 		color.b = ((value & 0x000000ff)) / 255f;
 	}
 
-	/** Sets the Color components using the specified integer value in the format RGBA8888. This is inverse to the rgb8888(r, g, b,
+	/** Sets the Color components using the specified integer value in the format RGBA8888. This is inverse to the rgba8888(r, g, b,
 	 * a) method.
 	 * 
 	 * @param color The Color to be modified.
@@ -383,11 +444,16 @@ public class Color {
 		color.a = ((value & 0x000000ff)) / 255f;
 	}
 
-	/** Returns a temporary copy of this color. This is not thread safe, do not save a reference to this instance.
-	 * 
-	 * @return a temporary copy of this color */
-	public Color tmp () {
-		return tmp.set(this);
+	/** Sets the Color components using the specified integer value in the format ARGB8888. This is the inverse to the argb8888(a, r,
+     * g, b) method
+	 *
+	 * @param color The Color to be modified.
+	 * @param value An integer color value in ARGB8888 format. */
+	public static void argb8888ToColor(Color color, int value) {
+		color.a = ((value & 0xff000000) >>> 24) / 255f;
+		color.r = ((value & 0x00ff0000) >>> 16) / 255f;
+		color.g = ((value & 0x0000ff00) >>> 8) / 255f;
+		color.b = ((value & 0x000000ff)) / 255f;
 	}
 
 	/** @return a copy of this color */

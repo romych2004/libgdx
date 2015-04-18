@@ -29,10 +29,13 @@ import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.utils.GdxRuntimeException;
 import com.google.gwt.core.client.GWT;
-import com.google.gwt.typedarrays.client.Float32Array;
-import com.google.gwt.typedarrays.client.Int16Array;
-import com.google.gwt.typedarrays.client.Int32Array;
-import com.google.gwt.typedarrays.client.Uint8Array;
+import com.google.gwt.typedarrays.client.Uint8ArrayNative;
+import com.google.gwt.typedarrays.shared.Float32Array;
+import com.google.gwt.typedarrays.shared.Int16Array;
+import com.google.gwt.typedarrays.shared.Int32Array;
+import com.google.gwt.typedarrays.shared.TypedArrays;
+import com.google.gwt.typedarrays.shared.Uint8Array;
+import com.google.gwt.typedarrays.shared.ArrayBufferView;
 import com.google.gwt.webgl.client.WebGLActiveInfo;
 import com.google.gwt.webgl.client.WebGLBuffer;
 import com.google.gwt.webgl.client.WebGLFramebuffer;
@@ -60,25 +63,34 @@ public class GwtGL20 implements GL20 {
 	int nextUniformId = 1;
 	int currProgram = 0;
 
-	Float32Array floatBuffer = Float32Array.create(2000 * 20);
-	Int16Array shortBuffer = Int16Array.create(2000 * 6);
+	Float32Array floatBuffer = TypedArrays.createFloat32Array(2000 * 20);
+	Int32Array intBuffer = TypedArrays.createInt32Array(2000 * 6);
+	Int16Array shortBuffer = TypedArrays.createInt16Array(2000 * 6);
+	float[] floatArray = new float[16000];
 
 	final WebGLRenderingContext gl;
 
 	protected GwtGL20 (WebGLRenderingContext gl) {
+		;
 		this.gl = gl;
 		this.gl.pixelStorei(WebGLRenderingContext.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0);
 	}
 
 	private void ensureCapacity (FloatBuffer buffer) {
-		if (buffer.remaining() > floatBuffer.getLength()) {
-			floatBuffer = Float32Array.create(buffer.remaining());
+		if (buffer.remaining() > floatBuffer.length()) {
+			floatBuffer = TypedArrays.createFloat32Array(buffer.remaining());
 		}
 	}
 
 	private void ensureCapacity (ShortBuffer buffer) {
-		if (buffer.remaining() > shortBuffer.getLength()) {
-			shortBuffer = Int16Array.create(buffer.remaining());
+		if (buffer.remaining() > shortBuffer.length()) {
+			shortBuffer = TypedArrays.createInt16Array(buffer.remaining());
+		}
+	}
+
+	private void ensureCapacity (IntBuffer buffer) {
+		if (buffer.remaining() > intBuffer.length()) {
+			intBuffer = TypedArrays.createInt32Array(buffer.remaining());
 		}
 	}
 
@@ -87,9 +99,8 @@ public class GwtGL20 implements GL20 {
 			return ((Float32Array)((HasArrayBufferView)buffer).getTypedArray()).subarray(buffer.position(), buffer.remaining());
 		} else {
 			ensureCapacity(buffer);
-			float[] array = buffer.array();
 			for (int i = buffer.position(), j = 0; i < buffer.limit(); i++, j++) {
-				floatBuffer.set(j, array[i]);
+				floatBuffer.set(j, buffer.get(i));
 			}
 			return floatBuffer.subarray(0, buffer.remaining());
 		}
@@ -100,11 +111,22 @@ public class GwtGL20 implements GL20 {
 			return ((Int16Array)((HasArrayBufferView)buffer).getTypedArray()).subarray(buffer.position(), buffer.remaining());
 		} else {
 			ensureCapacity(buffer);
-			short[] array = buffer.array();
 			for (int i = buffer.position(), j = 0; i < buffer.limit(); i++, j++) {
-				shortBuffer.set(j, array[i]);
+				shortBuffer.set(j, buffer.get(i));
 			}
 			return shortBuffer.subarray(0, buffer.remaining());
+		}
+	}
+
+	public Int32Array copy (IntBuffer buffer) {
+		if (GWT.isProdMode()) {
+			return ((Int32Array)((HasArrayBufferView)buffer).getTypedArray()).subarray(buffer.position(), buffer.remaining());
+		} else {
+			ensureCapacity(buffer);
+			for (int i = buffer.position(), j = 0; i < buffer.limit(); i++, j++) {
+				intBuffer.set(j, buffer.get(i));
+			}
+			return intBuffer.subarray(0, buffer.remaining());
 		}
 	}
 
@@ -261,6 +283,13 @@ public class GwtGL20 implements GL20 {
 			gl.deleteTexture(texture);
 		}
 	}
+	
+	@Override
+	public void glDeleteTexture (int id) {
+		WebGLTexture texture = this.textures.get(id);
+		deallocateTextureId(id);
+		gl.deleteTexture(texture);
+	}
 
 	@Override
 	public void glDepthFunc (int func) {
@@ -318,6 +347,12 @@ public class GwtGL20 implements GL20 {
 		int id = allocateTextureId(texture);
 		textures.put(id);
 	}
+	
+	@Override
+	public int glGenTexture () {
+		WebGLTexture texture = gl.createTexture();
+		return allocateTextureId(texture);
+	}
 
 	@Override
 	public int glGetError () {
@@ -326,14 +361,33 @@ public class GwtGL20 implements GL20 {
 
 	@Override
 	public void glGetIntegerv (int pname, IntBuffer params) {
-		// FIXME
-		throw new GdxRuntimeException("glGetInteger not supported by GWT WebGL backend");
+		if (pname == GL20.GL_ACTIVE_TEXTURE || pname == GL20.GL_ALPHA_BITS || pname == GL20.GL_BLEND_DST_ALPHA
+			|| pname == GL20.GL_BLEND_DST_RGB || pname == GL20.GL_BLEND_EQUATION_ALPHA || pname == GL20.GL_BLEND_EQUATION_RGB
+			|| pname == GL20.GL_BLEND_SRC_ALPHA || pname == GL20.GL_BLEND_SRC_RGB || pname == GL20.GL_BLUE_BITS
+			|| pname == GL20.GL_CULL_FACE_MODE || pname == GL20.GL_DEPTH_BITS || pname == GL20.GL_DEPTH_FUNC
+			|| pname == GL20.GL_FRONT_FACE || pname == GL20.GL_GENERATE_MIPMAP_HINT || pname == GL20.GL_GREEN_BITS
+			|| pname == GL20.GL_IMPLEMENTATION_COLOR_READ_FORMAT || pname == GL20.GL_IMPLEMENTATION_COLOR_READ_TYPE
+			|| pname == GL20.GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS || pname == GL20.GL_MAX_CUBE_MAP_TEXTURE_SIZE
+			|| pname == GL20.GL_MAX_FRAGMENT_UNIFORM_VECTORS || pname == GL20.GL_MAX_RENDERBUFFER_SIZE
+			|| pname == GL20.GL_MAX_TEXTURE_IMAGE_UNITS || pname == GL20.GL_MAX_TEXTURE_SIZE || pname == GL20.GL_MAX_VARYING_VECTORS
+			|| pname == GL20.GL_MAX_VERTEX_ATTRIBS || pname == GL20.GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS
+			|| pname == GL20.GL_MAX_VERTEX_UNIFORM_VECTORS || pname == GL20.GL_NUM_COMPRESSED_TEXTURE_FORMATS
+			|| pname == GL20.GL_PACK_ALIGNMENT || pname == GL20.GL_RED_BITS || pname == GL20.GL_SAMPLE_BUFFERS
+			|| pname == GL20.GL_SAMPLES || pname == GL20.GL_STENCIL_BACK_FAIL || pname == GL20.GL_STENCIL_BACK_FUNC
+			|| pname == GL20.GL_STENCIL_BACK_PASS_DEPTH_FAIL || pname == GL20.GL_STENCIL_BACK_PASS_DEPTH_PASS
+			|| pname == GL20.GL_STENCIL_BACK_REF || pname == GL20.GL_STENCIL_BACK_VALUE_MASK
+			|| pname == GL20.GL_STENCIL_BACK_WRITEMASK || pname == GL20.GL_STENCIL_BITS || pname == GL20.GL_STENCIL_CLEAR_VALUE
+			|| pname == GL20.GL_STENCIL_FAIL || pname == GL20.GL_STENCIL_FUNC || pname == GL20.GL_STENCIL_PASS_DEPTH_FAIL
+			|| pname == GL20.GL_STENCIL_PASS_DEPTH_PASS || pname == GL20.GL_STENCIL_REF || pname == GL20.GL_STENCIL_VALUE_MASK
+			|| pname == GL20.GL_STENCIL_WRITEMASK || pname == GL20.GL_SUBPIXEL_BITS || pname == GL20.GL_UNPACK_ALIGNMENT)
+			params.put(0, gl.getParameteri(pname));
+		else
+			throw new GdxRuntimeException("glGetFloat not supported by GWT WebGL backend");
 	}
 
 	@Override
 	public String glGetString (int name) {
-		// FIXME
-		throw new GdxRuntimeException("not implemented");
+		return gl.getParameterString(name);
 	}
 
 	@Override
@@ -365,14 +419,14 @@ public class GwtGL20 implements GL20 {
 		if (!(pixels instanceof ByteBuffer)) {
 			throw new GdxRuntimeException("Inputed pixels buffer needs to be of type ByteBuffer for glReadPixels(...).");
 		}
-		
+
 		// create new ArrayBufferView (4 bytes per pixel)
 		int size = 4 * width * height;
-		Uint8Array buffer = Uint8Array.create(size);
-		
+		Uint8Array buffer = Uint8ArrayNative.create(size);
+
 		// read bytes to ArrayBufferView
 		gl.readPixels(x, y, width, height, format, type, buffer);
-	
+
 		// copy ArrayBufferView to our pixels array
 		ByteBuffer pixelsByte = (ByteBuffer)pixels;
 		for (int i = 0; i < size; i++) {
@@ -403,8 +457,21 @@ public class GwtGL20 implements GL20 {
 	@Override
 	public void glTexImage2D (int target, int level, int internalformat, int width, int height, int border, int format, int type,
 		Buffer pixels) {
-		Pixmap pixmap = Pixmap.pixmaps.get(((IntBuffer)pixels).get(0));
-		gl.texImage2D(target, level, internalformat, format, type, pixmap.getCanvasElement());
+        if (pixels.limit() > 1) {
+            HasArrayBufferView arrayHolder = (HasArrayBufferView) pixels;
+
+            ArrayBufferView webGLArray = arrayHolder.getTypedArray();
+            int remainingBytes = pixels.remaining() * 4;
+
+            int byteOffset = webGLArray.byteOffset() + pixels.position() * 4;
+
+            Uint8Array buffer = Uint8ArrayNative.create(webGLArray.buffer(), byteOffset, remainingBytes);
+
+            gl.texImage2D(target, level, internalformat, width, height, border, format, type, buffer);
+        } else {
+            Pixmap pixmap = Pixmap.pixmaps.get(((IntBuffer)pixels).get(0));
+            gl.texImage2D(target, level, internalformat, format, type, pixmap.getCanvasElement());
+        }
 	}
 
 	@Override
@@ -415,8 +482,21 @@ public class GwtGL20 implements GL20 {
 	@Override
 	public void glTexSubImage2D (int target, int level, int xoffset, int yoffset, int width, int height, int format, int type,
 		Buffer pixels) {
-		Pixmap pixmap = Pixmap.pixmaps.get(((IntBuffer)pixels).get(0));
-		gl.texSubImage2D(target, level, xoffset, yoffset, width, height, pixmap.getCanvasElement());
+        if (pixels.limit() > 1) {
+            HasArrayBufferView arrayHolder = (HasArrayBufferView) pixels;
+
+            ArrayBufferView webGLArray = arrayHolder.getTypedArray();
+            int remainingBytes = pixels.remaining() * 4;
+
+            int byteOffset = webGLArray.byteOffset() + pixels.position() * 4;
+
+            Uint8Array buffer = Uint8ArrayNative.create(webGLArray.buffer(), byteOffset, remainingBytes);
+
+            gl.texSubImage2D(target, level, xoffset, yoffset, width, height, format, type, buffer);
+        } else {
+            Pixmap pixmap = Pixmap.pixmaps.get(((IntBuffer) pixels).get(0));
+            gl.texSubImage2D(target, level, xoffset, yoffset, format, type, pixmap.getCanvasElement());
+        }
 	}
 
 	@Override
@@ -526,6 +606,13 @@ public class GwtGL20 implements GL20 {
 			gl.deleteBuffer(buffer);
 		}
 	}
+	
+	@Override
+	public void glDeleteBuffer (int id) {
+		WebGLBuffer buffer = this.buffers.get(id);
+		deallocateBufferId(id);
+		gl.deleteBuffer(buffer);
+	}
 
 	@Override
 	public void glDeleteFramebuffers (int n, IntBuffer framebuffers) {
@@ -537,6 +624,13 @@ public class GwtGL20 implements GL20 {
 		}
 	}
 
+	@Override
+	public void glDeleteFramebuffer (int id) {
+		WebGLFramebuffer fb = this.frameBuffers.get(id);
+		deallocateFrameBufferId(id);
+		gl.deleteFramebuffer(fb);
+	}
+	
 	@Override
 	public void glDeleteProgram (int program) {
 		WebGLProgram prog = programs.get(program);
@@ -552,6 +646,13 @@ public class GwtGL20 implements GL20 {
 			deallocateRenderBufferId(id);
 			gl.deleteRenderbuffer(rb);
 		}
+	}
+	
+	@Override
+	public void glDeleteRenderbuffer (int id) {
+		WebGLRenderbuffer rb = this.renderBuffers.get(id);
+		deallocateRenderBufferId(id);
+		gl.deleteRenderbuffer(rb);
 	}
 
 	@Override
@@ -599,6 +700,12 @@ public class GwtGL20 implements GL20 {
 			buffers.put(id);
 		}
 	}
+	
+	@Override
+	public int glGenBuffer () {
+		WebGLBuffer buffer = gl.createBuffer();
+		return allocateBufferId(buffer);
+	}
 
 	@Override
 	public void glGenerateMipmap (int target) {
@@ -613,6 +720,12 @@ public class GwtGL20 implements GL20 {
 			framebuffers.put(id);
 		}
 	}
+	
+	@Override
+	public int glGenFramebuffer () {
+		WebGLFramebuffer fb = gl.createFramebuffer();
+		return allocateFrameBufferId(fb);
+	}
 
 	@Override
 	public void glGenRenderbuffers (int n, IntBuffer renderbuffers) {
@@ -621,6 +734,12 @@ public class GwtGL20 implements GL20 {
 			int id = allocateRenderBufferId(rb);
 			renderbuffers.put(id);
 		}
+	}
+	
+	@Override
+	public int glGenRenderbuffer () {
+		WebGLRenderbuffer rb = gl.createRenderbuffer();
+		return allocateRenderBufferId(rb);
 	}
 
 	@Override
@@ -664,7 +783,11 @@ public class GwtGL20 implements GL20 {
 
 	@Override
 	public void glGetFloatv (int pname, FloatBuffer params) {
-		throw new GdxRuntimeException("glGetFloat not supported by GWT WebGL backend");
+		if (pname == GL20.GL_DEPTH_CLEAR_VALUE || pname == GL20.GL_LINE_WIDTH || pname == GL20.GL_POLYGON_OFFSET_FACTOR
+			|| pname == GL20.GL_POLYGON_OFFSET_UNITS || pname == GL20.GL_SAMPLE_COVERAGE_VALUE)
+			params.put(0, gl.getParameterf(pname));
+		else
+			throw new GdxRuntimeException("glGetFloat not supported by GWT WebGL backend");
 	}
 
 	@Override
@@ -713,11 +836,6 @@ public class GwtGL20 implements GL20 {
 	@Override
 	public void glGetShaderPrecisionFormat (int shadertype, int precisiontype, IntBuffer range, IntBuffer precision) {
 		throw new GdxRuntimeException("glGetShaderPrecisionFormat not supported by GWT WebGL backend");
-	}
-
-	@Override
-	public void glGetShaderSource (int shader, int bufsize, Buffer length, String source) {
-		throw new GdxRuntimeException("glGetShaderSource not supported by GWT WebGL backend");
 	}
 
 	@Override
@@ -869,11 +987,13 @@ public class GwtGL20 implements GL20 {
 	@Override
 	public void glUniform1fv (int location, int count, FloatBuffer v) {
 		WebGLUniformLocation loc = getUniformLocation(location);
-		if (GWT.isProdMode()) {
-			gl.uniform1fv(loc, ((Float32Array)((HasArrayBufferView)v).getTypedArray()).subarray(v.position(), v.remaining()));
-		} else {
-			gl.uniform1fv(loc, v.array());
-		}
+		gl.uniform1fv(loc, copy(v));
+	}
+	
+	@Override
+	public void glUniform1fv (int location, int count, float[] v, int offset) {
+		WebGLUniformLocation loc = getUniformLocation(location);
+		gl.uniform1fv(loc, v);
 	}
 
 	@Override
@@ -885,11 +1005,13 @@ public class GwtGL20 implements GL20 {
 	@Override
 	public void glUniform1iv (int location, int count, IntBuffer v) {
 		WebGLUniformLocation loc = getUniformLocation(location);
-		if (GWT.isProdMode()) {
-			gl.uniform1iv(loc, ((Int32Array)((HasArrayBufferView)v).getTypedArray()).subarray(v.position(), v.remaining()));
-		} else {
-			gl.uniform1iv(loc, v.array());
-		}
+		gl.uniform1iv(loc, copy(v));
+	}
+	
+	@Override
+	public void glUniform1iv (int location, int count, int[] v, int offset) {
+		WebGLUniformLocation loc = getUniformLocation(location);
+		gl.uniform1iv(loc, v);
 	}
 
 	@Override
@@ -901,12 +1023,13 @@ public class GwtGL20 implements GL20 {
 	@Override
 	public void glUniform2fv (int location, int count, FloatBuffer v) {
 		WebGLUniformLocation loc = getUniformLocation(location);
-		if (GWT.isProdMode()) {
-			gl.uniform2fv(loc, ((Float32Array)((HasArrayBufferView)v).getTypedArray()).subarray(v.position(), v.remaining()));
-			;
-		} else {
-			gl.uniform2fv(loc, v.array());
-		}
+		gl.uniform2fv(loc, copy(v));
+	}
+	
+	@Override
+	public void glUniform2fv (int location, int count, float[] v, int offset) {
+		WebGLUniformLocation loc = getUniformLocation(location);
+		gl.uniform2fv(loc, v);
 	}
 
 	@Override
@@ -918,11 +1041,13 @@ public class GwtGL20 implements GL20 {
 	@Override
 	public void glUniform2iv (int location, int count, IntBuffer v) {
 		WebGLUniformLocation loc = getUniformLocation(location);
-		if (GWT.isProdMode()) {
-			gl.uniform2iv(loc, ((Int32Array)((HasArrayBufferView)v).getTypedArray()).subarray(v.position(), v.remaining()));
-		} else {
-			gl.uniform2iv(loc, v.array());
-		}
+		gl.uniform2iv(loc, copy(v));
+	}
+	
+	@Override
+	public void glUniform2iv (int location, int count, int[] v, int offset) {
+		WebGLUniformLocation loc = getUniformLocation(location);
+		gl.uniform2iv(loc, v);
 	}
 
 	@Override
@@ -934,11 +1059,13 @@ public class GwtGL20 implements GL20 {
 	@Override
 	public void glUniform3fv (int location, int count, FloatBuffer v) {
 		WebGLUniformLocation loc = getUniformLocation(location);
-		if (GWT.isProdMode()) {
-			gl.uniform3fv(loc, ((Float32Array)((HasArrayBufferView)v).getTypedArray()).subarray(v.position(), v.remaining()));
-		} else {
-			gl.uniform3fv(loc, v.array());
-		}
+		gl.uniform3fv(loc, copy(v));
+	}
+	
+	@Override
+	public void glUniform3fv (int location, int count, float[] v, int offset) {
+		WebGLUniformLocation loc = getUniformLocation(location);
+		gl.uniform3fv(loc, v);
 	}
 
 	@Override
@@ -950,11 +1077,13 @@ public class GwtGL20 implements GL20 {
 	@Override
 	public void glUniform3iv (int location, int count, IntBuffer v) {
 		WebGLUniformLocation loc = getUniformLocation(location);
-		if (GWT.isProdMode()) {
-			gl.uniform3iv(loc, ((Int32Array)((HasArrayBufferView)v).getTypedArray()).subarray(v.position(), v.remaining()));
-		} else {
-			gl.uniform3iv(loc, v.array());
-		}
+		gl.uniform3iv(loc, copy(v));
+	}
+	
+	@Override
+	public void glUniform3iv (int location, int count, int[] v, int offset) {
+		WebGLUniformLocation loc = getUniformLocation(location);
+		gl.uniform3iv(loc, v);
 	}
 
 	@Override
@@ -966,13 +1095,15 @@ public class GwtGL20 implements GL20 {
 	@Override
 	public void glUniform4fv (int location, int count, FloatBuffer v) {
 		WebGLUniformLocation loc = getUniformLocation(location);
-		if (GWT.isProdMode()) {
-			gl.uniform4fv(loc, ((Float32Array)((HasArrayBufferView)v).getTypedArray()).subarray(v.position(), v.remaining()));
-		} else {
-			gl.uniform4fv(loc, v.array());
-		}
+		gl.uniform4fv(loc, copy(v));
 	}
 
+	@Override
+	public void glUniform4fv (int location, int count, float[] v, int offset) {
+		WebGLUniformLocation loc = getUniformLocation(location);
+		gl.uniform4fv(loc, v);
+	}
+	
 	@Override
 	public void glUniform4i (int location, int x, int y, int z, int w) {
 		WebGLUniformLocation loc = getUniformLocation(location);
@@ -982,44 +1113,49 @@ public class GwtGL20 implements GL20 {
 	@Override
 	public void glUniform4iv (int location, int count, IntBuffer v) {
 		WebGLUniformLocation loc = getUniformLocation(location);
-		if (GWT.isProdMode()) {
-			gl.uniform4iv(loc, ((Int32Array)((HasArrayBufferView)v).getTypedArray()).subarray(v.position(), v.remaining()));
-		} else {
-			gl.uniform4iv(loc, v.array());
-		}
+		gl.uniform4iv(loc, copy(v));
 	}
 
 	@Override
+	public void glUniform4iv (int location, int count, int[] v, int offset) {
+		WebGLUniformLocation loc = getUniformLocation(location);
+		gl.uniform4iv(loc, v);
+	}
+	
+	@Override
 	public void glUniformMatrix2fv (int location, int count, boolean transpose, FloatBuffer value) {
 		WebGLUniformLocation loc = getUniformLocation(location);
-		if (GWT.isProdMode()) {
-			gl.uniformMatrix2fv(loc, transpose,
-				((Float32Array)((HasArrayBufferView)value).getTypedArray()).subarray(value.position(), value.remaining()));
-		} else {
-			gl.uniformMatrix2fv(loc, transpose, value.array());
-		}
+		gl.uniformMatrix2fv(loc, transpose, copy(value));
+	}
+	
+	@Override
+	public void glUniformMatrix2fv (int location, int count, boolean transpose, float[] value, int offset) {
+		WebGLUniformLocation loc = getUniformLocation(location);
+		gl.uniformMatrix2fv(loc, transpose, value);
 	}
 
 	@Override
 	public void glUniformMatrix3fv (int location, int count, boolean transpose, FloatBuffer value) {
 		WebGLUniformLocation loc = getUniformLocation(location);
-		if (GWT.isProdMode()) {
-			gl.uniformMatrix3fv(loc, transpose,
-				((Float32Array)((HasArrayBufferView)value).getTypedArray()).subarray(value.position(), value.remaining()));
-		} else {
-			gl.uniformMatrix3fv(loc, transpose, value.array());
-		}
+		gl.uniformMatrix3fv(loc, transpose, copy(value));
+	}
+	
+	@Override
+	public void glUniformMatrix3fv (int location, int count, boolean transpose, float[] value, int offset) {
+		WebGLUniformLocation loc = getUniformLocation(location);
+		gl.uniformMatrix3fv(loc, transpose, value);
 	}
 
 	@Override
 	public void glUniformMatrix4fv (int location, int count, boolean transpose, FloatBuffer value) {
 		WebGLUniformLocation loc = getUniformLocation(location);
-		if (GWT.isProdMode()) {
-			gl.uniformMatrix4fv(loc, transpose,
-				((Float32Array)((HasArrayBufferView)value).getTypedArray()).subarray(value.position(), value.remaining()));
-		} else {
-			gl.uniformMatrix4fv(loc, transpose, value.array());
-		}
+		gl.uniformMatrix4fv(loc, transpose, copy(value));
+	}
+	
+	@Override
+	public void glUniformMatrix4fv (int location, int count, boolean transpose, float[] value, int offset) {
+		WebGLUniformLocation loc = getUniformLocation(location);
+		gl.uniformMatrix4fv(loc, transpose, value);
 	}
 
 	@Override
@@ -1040,12 +1176,7 @@ public class GwtGL20 implements GL20 {
 
 	@Override
 	public void glVertexAttrib1fv (int indx, FloatBuffer values) {
-		if (GWT.isProdMode()) {
-			gl.vertexAttrib1fv(indx,
-				((Float32Array)((HasArrayBufferView)values).getTypedArray()).subarray(values.position(), values.remaining()));
-		} else {
-			gl.vertexAttrib1fv(indx, values.array());
-		}
+		gl.vertexAttrib1fv(indx, copy(values));
 	}
 
 	@Override
@@ -1055,12 +1186,7 @@ public class GwtGL20 implements GL20 {
 
 	@Override
 	public void glVertexAttrib2fv (int indx, FloatBuffer values) {
-		if (GWT.isProdMode()) {
-			gl.vertexAttrib2fv(indx,
-				((Float32Array)((HasArrayBufferView)values).getTypedArray()).subarray(values.position(), values.remaining()));
-		} else {
-			gl.vertexAttrib2fv(indx, values.array());
-		}
+		gl.vertexAttrib2fv(indx, copy(values));
 	}
 
 	@Override
@@ -1070,12 +1196,7 @@ public class GwtGL20 implements GL20 {
 
 	@Override
 	public void glVertexAttrib3fv (int indx, FloatBuffer values) {
-		if (GWT.isProdMode()) {
-			gl.vertexAttrib3fv(indx,
-				((Float32Array)((HasArrayBufferView)values).getTypedArray()).subarray(values.position(), values.remaining()));
-		} else {
-			gl.vertexAttrib3fv(indx, values.array());
-		}
+		gl.vertexAttrib3fv(indx, copy(values));
 	}
 
 	@Override
@@ -1085,12 +1206,7 @@ public class GwtGL20 implements GL20 {
 
 	@Override
 	public void glVertexAttrib4fv (int indx, FloatBuffer values) {
-		if (GWT.isProdMode()) {
-			gl.vertexAttrib4fv(indx,
-				((Float32Array)((HasArrayBufferView)values).getTypedArray()).subarray(values.position(), values.remaining()));
-		} else {
-			gl.vertexAttrib4fv(indx, values.array());
-		}
+		gl.vertexAttrib4fv(indx, copy(values));
 	}
 
 	@Override

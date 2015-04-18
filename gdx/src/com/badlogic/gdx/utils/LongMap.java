@@ -28,7 +28,7 @@ import com.badlogic.gdx.math.MathUtils;
  * depending on hash collisions. Load factors greater than 0.91 greatly increase the chances the map will have to rehash to the
  * next higher POT size.
  * @author Nathan Sweet */
-public class LongMap<V> {
+public class LongMap<V> implements Iterable<LongMap.Entry<V>> {
 	private static final int PRIME1 = 0xbe1f14b1;
 	private static final int PRIME2 = 0xb4b82e39;
 	private static final int PRIME3 = 0xced1c241;
@@ -67,7 +67,7 @@ public class LongMap<V> {
 	 * before growing the backing table. */
 	public LongMap (int initialCapacity, float loadFactor) {
 		if (initialCapacity < 0) throw new IllegalArgumentException("initialCapacity must be >= 0: " + initialCapacity);
-		if (capacity > 1 << 30) throw new IllegalArgumentException("initialCapacity is too large: " + initialCapacity);
+		if (initialCapacity > 1 << 30) throw new IllegalArgumentException("initialCapacity is too large: " + initialCapacity);
 		capacity = MathUtils.nextPowerOfTwo(initialCapacity);
 
 		if (loadFactor <= 0) throw new IllegalArgumentException("loadFactor must be > 0: " + loadFactor);
@@ -81,6 +81,17 @@ public class LongMap<V> {
 
 		keyTable = new long[capacity + stashCapacity];
 		valueTable = (V[])new Object[keyTable.length];
+	}
+
+	/** Creates a new map identical to the specified map. */
+	public LongMap (LongMap<? extends V> map) {
+		this(map.capacity, map.loadFactor);
+		stashSize = map.stashSize;
+		System.arraycopy(map.keyTable, 0, keyTable, 0, map.keyTable.length);
+		System.arraycopy(map.valueTable, 0, valueTable, 0, map.valueTable.length);
+		size = map.size;
+		zeroValue = map.zeroValue;
+		hasZeroValue = map.hasZeroValue;
 	}
 
 	public V put (long key, V value) {
@@ -285,7 +296,10 @@ public class LongMap<V> {
 	}
 
 	public V get (long key) {
-		if (key == 0) return zeroValue;
+		if (key == 0) {
+			if (!hasZeroValue) return null;
+			return zeroValue;
+		}
 		int index = (int)(key & mask);
 		if (keyTable[index] != key) {
 			index = hash2(key);
@@ -298,7 +312,10 @@ public class LongMap<V> {
 	}
 
 	public V get (long key, V defaultValue) {
-		if (key == 0) return zeroValue;
+		if (key == 0) {
+			if (!hasZeroValue) return defaultValue;
+			return zeroValue;
+		}
 		int index = (int)(key & mask);
 		if (keyTable[index] != key) {
 			index = hash2(key);
@@ -382,7 +399,30 @@ public class LongMap<V> {
 			valueTable[index] = null;
 	}
 
+	/** Reduces the size of the backing arrays to be the specified capacity or less. If the capacity is already less, nothing is
+	 * done. If the map contains more items than the specified capacity, the next highest power of two capacity is used instead. */
+	public void shrink (int maximumCapacity) {
+		if (maximumCapacity < 0) throw new IllegalArgumentException("maximumCapacity must be >= 0: " + maximumCapacity);
+		if (size > maximumCapacity) maximumCapacity = size;
+		if (capacity <= maximumCapacity) return;
+		maximumCapacity = MathUtils.nextPowerOfTwo(maximumCapacity);
+		resize(maximumCapacity);
+	}
+
+	/** Clears the map and reduces the size of the backing arrays to be the specified capacity if they are larger. */
+	public void clear (int maximumCapacity) {
+		if (capacity <= maximumCapacity) {
+			clear();
+			return;
+		}
+		zeroValue = null;
+		hasZeroValue = false;
+		size = 0;
+		resize(maximumCapacity);
+	}
+
 	public void clear () {
+		if (size == 0) return;
 		long[] keyTable = this.keyTable;
 		V[] valueTable = this.valueTable;
 		for (int i = capacity + stashSize; i-- > 0;) {
@@ -459,7 +499,7 @@ public class LongMap<V> {
 		return notFound;
 	}
 
-	/** Increases the size of the backing array to acommodate the specified number of additional items. Useful before adding many
+	/** Increases the size of the backing array to accommodate the specified number of additional items. Useful before adding many
 	 * items to avoid multiple backing array resizes. */
 	public void ensureCapacity (int additionalCapacity) {
 		int sizeNeeded = size + additionalCapacity;
@@ -482,11 +522,14 @@ public class LongMap<V> {
 		keyTable = new long[newSize + stashCapacity];
 		valueTable = (V[])new Object[newSize + stashCapacity];
 
+		int oldSize = size;
 		size = hasZeroValue ? 1 : 0;
 		stashSize = 0;
-		for (int i = 0; i < oldEndIndex; i++) {
-			long key = oldKeyTable[i];
-			if (key != EMPTY) putResize(key, oldValueTable[i]);
+		if (oldSize > 0) {
+			for (int i = 0; i < oldEndIndex; i++) {
+				long key = oldKeyTable[i];
+				if (key != EMPTY) putResize(key, oldValueTable[i]);
+			}
 		}
 	}
 
@@ -525,6 +568,10 @@ public class LongMap<V> {
 		}
 		buffer.append(']');
 		return buffer.toString();
+	}
+
+	public Iterator<Entry<V>> iterator () {
+		return entries();
 	}
 
 	/** Returns an iterator for the entries in the map. Remove is supported. Note that the same iterator instance is returned each
@@ -636,6 +683,8 @@ public class LongMap<V> {
 				throw new IllegalStateException("next must be called before remove.");
 			} else if (currentIndex >= map.capacity) {
 				map.removeStashIndex(currentIndex);
+				nextIndex = currentIndex - 1;
+				findNextIndex();
 			} else {
 				map.keyTable[currentIndex] = EMPTY;
 				map.valueTable[currentIndex] = null;
@@ -670,11 +719,16 @@ public class LongMap<V> {
 		}
 
 		public boolean hasNext () {
+			if (!valid) throw new GdxRuntimeException("#iterator() cannot be used nested.");
 			return hasNext;
 		}
 
 		public Iterator<Entry<V>> iterator () {
 			return this;
+		}
+
+		public void remove () {
+			super.remove();
 		}
 	}
 
@@ -684,6 +738,7 @@ public class LongMap<V> {
 		}
 
 		public boolean hasNext () {
+			if (!valid) throw new GdxRuntimeException("#iterator() cannot be used nested.");
 			return hasNext;
 		}
 
@@ -710,6 +765,10 @@ public class LongMap<V> {
 			while (hasNext)
 				array.add(next());
 			return array;
+		}
+
+		public void remove () {
+			super.remove();
 		}
 	}
 

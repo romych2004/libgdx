@@ -16,7 +16,7 @@
 
 package com.badlogic.gdx.utils;
 
-public class NumberUtils {
+public final class NumberUtils {
 	public static int floatToIntBits (float value) {
 		return Float.floatToIntBits(value);
 	}

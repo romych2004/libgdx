@@ -16,13 +16,10 @@
 
 package com.badlogic.gdx.utils;
 
-import com.badlogic.gdx.math.MathUtils;
-import com.badlogic.gdx.utils.IntFloatMap.Entries;
-import com.badlogic.gdx.utils.IntFloatMap.Keys;
-import com.badlogic.gdx.utils.IntFloatMap.Values;
-
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+
+import com.badlogic.gdx.math.MathUtils;
 
 /** An unordered map where the keys and values are ints. This implementation is a cuckoo hash map using 3 hashes, random walking,
  * and a small stash for problematic keys. No allocation is done except when growing the table size. <br>
@@ -31,7 +28,7 @@ import java.util.NoSuchElementException;
  * depending on hash collisions. Load factors greater than 0.91 greatly increase the chances the map will have to rehash to the
  * next higher POT size.
  * @author Nathan Sweet */
-public class IntIntMap {
+public class IntIntMap implements Iterable<IntIntMap.Entry> {
 	private static final int PRIME1 = 0xbe1f14b1;
 	private static final int PRIME2 = 0xb4b82e39;
 	private static final int PRIME3 = 0xced1c241;
@@ -69,7 +66,7 @@ public class IntIntMap {
 	 * before growing the backing table. */
 	public IntIntMap (int initialCapacity, float loadFactor) {
 		if (initialCapacity < 0) throw new IllegalArgumentException("initialCapacity must be >= 0: " + initialCapacity);
-		if (capacity > 1 << 30) throw new IllegalArgumentException("initialCapacity is too large: " + initialCapacity);
+		if (initialCapacity > 1 << 30) throw new IllegalArgumentException("initialCapacity is too large: " + initialCapacity);
 		capacity = MathUtils.nextPowerOfTwo(initialCapacity);
 
 		if (loadFactor <= 0) throw new IllegalArgumentException("loadFactor must be > 0: " + loadFactor);
@@ -83,6 +80,17 @@ public class IntIntMap {
 
 		keyTable = new int[capacity + stashCapacity];
 		valueTable = new int[keyTable.length];
+	}
+
+	/** Creates a new map identical to the specified map. */
+	public IntIntMap (IntIntMap map) {
+		this(map.capacity, map.loadFactor);
+		stashSize = map.stashSize;
+		System.arraycopy(map.keyTable, 0, keyTable, 0, map.keyTable.length);
+		System.arraycopy(map.valueTable, 0, valueTable, 0, map.valueTable.length);
+		size = map.size;
+		zeroValue = map.zeroValue;
+		hasZeroValue = map.hasZeroValue;
 	}
 
 	public void put (int key, int value) {
@@ -282,7 +290,10 @@ public class IntIntMap {
 
 	/** @param defaultValue Returned if the key was not associated with a value. */
 	public int get (int key, int defaultValue) {
-		if (key == 0) return zeroValue;
+		if (key == 0) {
+			if (!hasZeroValue) return defaultValue;
+			return zeroValue;
+		}
 		int index = key & mask;
 		if (keyTable[index] != key) {
 			index = hash2(key);
@@ -304,6 +315,18 @@ public class IntIntMap {
 	/** Returns the key's current value and increments the stored value. If the key is not in the map, defaultValue + increment is
 	 * put into the map. */
 	public int getAndIncrement (int key, int defaultValue, int increment) {
+		if (key == 0) {
+			if (hasZeroValue) {
+				int value = zeroValue;
+				zeroValue += increment;
+				return value;
+			} else {
+				hasZeroValue = true;
+				zeroValue = defaultValue + increment;
+				++size;
+				return defaultValue;
+			}
+		}
 		int index = key & mask;
 		if (key != keyTable[index]) {
 			index = hash2(key);
@@ -387,12 +410,35 @@ public class IntIntMap {
 		}
 	}
 
+	/** Reduces the size of the backing arrays to be the specified capacity or less. If the capacity is already less, nothing is
+	 * done. If the map contains more items than the specified capacity, the next highest power of two capacity is used instead. */
+	public void shrink (int maximumCapacity) {
+		if (maximumCapacity < 0) throw new IllegalArgumentException("maximumCapacity must be >= 0: " + maximumCapacity);
+		if (size > maximumCapacity) maximumCapacity = size;
+		if (capacity <= maximumCapacity) return;
+		maximumCapacity = MathUtils.nextPowerOfTwo(maximumCapacity);
+		resize(maximumCapacity);
+	}
+
+	/** Clears the map and reduces the size of the backing arrays to be the specified capacity if they are larger. */
+	public void clear (int maximumCapacity) {
+		if (capacity <= maximumCapacity) {
+			clear();
+			return;
+		}
+		hasZeroValue = false;
+		size = 0;
+		resize(maximumCapacity);
+	}
+
 	public void clear () {
+		if (size == 0) return;
 		int[] keyTable = this.keyTable;
 		for (int i = capacity + stashSize; i-- > 0;)
 			keyTable[i] = EMPTY;
 		size = 0;
 		stashSize = 0;
+		hasZeroValue = false;
 	}
 
 	/** Returns true if the specified value is in the map. Note this traverses the entire map and compares every value, which may be
@@ -435,7 +481,7 @@ public class IntIntMap {
 		return notFound;
 	}
 
-	/** Increases the size of the backing array to acommodate the specified number of additional items. Useful before adding many
+	/** Increases the size of the backing array to accommodate the specified number of additional items. Useful before adding many
 	 * items to avoid multiple backing array resizes. */
 	public void ensureCapacity (int additionalCapacity) {
 		int sizeNeeded = size + additionalCapacity;
@@ -458,11 +504,14 @@ public class IntIntMap {
 		keyTable = new int[newSize + stashCapacity];
 		valueTable = new int[newSize + stashCapacity];
 
+		int oldSize = size;
 		size = hasZeroValue ? 1 : 0;
 		stashSize = 0;
-		for (int i = 0; i < oldEndIndex; i++) {
-			int key = oldKeyTable[i];
-			if (key != EMPTY) putResize(key, oldValueTable[i]);
+		if (oldSize > 0) {
+			for (int i = 0; i < oldEndIndex; i++) {
+				int key = oldKeyTable[i];
+				if (key != EMPTY) putResize(key, oldValueTable[i]);
+			}
 		}
 	}
 
@@ -506,6 +555,10 @@ public class IntIntMap {
 		}
 		buffer.append('}');
 		return buffer.toString();
+	}
+
+	public Iterator<Entry> iterator () {
+		return entries();
 	}
 
 	/** Returns an iterator for the entries in the map. Remove is supported. Note that the same iterator instance is returned each
@@ -565,7 +618,7 @@ public class IntIntMap {
 		return keys2;
 	}
 
-	static public class Entry<K> {
+	static public class Entry {
 		public int key;
 		public int value;
 
@@ -574,7 +627,7 @@ public class IntIntMap {
 		}
 	}
 
-	static private class MapIterator<K> {
+	static private class MapIterator {
 		static final int INDEX_ILLEGAL = -2;
 		static final int INDEX_ZERO = -1;
 
@@ -616,6 +669,8 @@ public class IntIntMap {
 				throw new IllegalStateException("next must be called before remove.");
 			} else if (currentIndex >= map.capacity) {
 				map.removeStashIndex(currentIndex);
+				nextIndex = currentIndex - 1;
+				findNextIndex();
 			} else {
 				map.keyTable[currentIndex] = EMPTY;
 			}
@@ -649,20 +704,26 @@ public class IntIntMap {
 		}
 
 		public boolean hasNext () {
+			if (!valid) throw new GdxRuntimeException("#iterator() cannot be used nested.");
 			return hasNext;
 		}
 
 		public Iterator<Entry> iterator () {
 			return this;
 		}
+
+		public void remove () {
+			super.remove();
+		}
 	}
 
-	static public class Values extends MapIterator<Object> {
+	static public class Values extends MapIterator {
 		public Values (IntIntMap map) {
 			super(map);
 		}
 
 		public boolean hasNext () {
+			if (!valid) throw new GdxRuntimeException("#iterator() cannot be used nested.");
 			return hasNext;
 		}
 
@@ -694,6 +755,7 @@ public class IntIntMap {
 		}
 
 		public boolean hasNext () {
+			if (!valid) throw new GdxRuntimeException("#iterator() cannot be used nested.");
 			return hasNext;
 		}
 

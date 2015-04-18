@@ -102,7 +102,9 @@ public class AntScriptGenerator {
 					buildFiles.add(buildFileName);
 				} 
 				sharedLibFiles.add(getSharedLibFilename(target.os, target.is64Bit, config.sharedLibName));
-				libsDirs.add("../" + libsDir.path().replace('\\', '/'));
+				if(target.os != TargetOs.Android && target.os != TargetOs.IOS) {
+					libsDirs.add("../" + libsDir.path().replace('\\', '/'));
+				}
 			}
 		}
 
@@ -162,7 +164,7 @@ public class AntScriptGenerator {
 		}
 		if (os == TargetOs.MacOsX) {
 			libPrefix = "lib";
-			libSuffix = ".dylib";
+			libSuffix = (is64Bit ? "64" : "") + ".dylib";
 		}
 		if (os == TargetOs.IOS) {
 			libPrefix = "lib";
